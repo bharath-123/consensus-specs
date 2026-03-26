@@ -17,8 +17,9 @@
     - [`InclusionList`](#inclusionlist)
     - [`SignedInclusionList`](#signedinclusionlist)
     - [`TicketId`](#ticketid)
-    - [`AOTBlobBundle`](#aotblobbundle)
-    - [`SignedAOTBlobBundle`](#signedaotblobbundle)
+    - [`Ticket`](#ticket)
+    - [`AOTBlobInfo`](#aotblobinfo)
+    - [`SignedAOTBlobInfo`](#signedaotblobinfo)
   - [Modified containers](#modified-containers)
     - [`ExecutionPayloadBid`](#executionpayloadbid)
     - [`SignedExecutionPayloadBid`](#signedexecutionpayloadbid)
@@ -26,7 +27,7 @@
 - [Helpers](#helpers)
   - [Predicates](#predicates)
     - [New `is_valid_inclusion_list_signature`](#new-is_valid_inclusion_list_signature)
-    - [New `is_valid_aot_blob_bundle_signature`](#new-is_valid_aot_blob_bundle_signature)
+    - [New `is_valid_aot_blob_info_signature`](#new-is_valid_aot_blob_info_signature)
   - [Beacon state accessors](#beacon-state-accessors)
     - [New `get_inclusion_list_committee`](#new-get_inclusion_list_committee)
 
@@ -104,28 +105,50 @@ through the ticket system contract on the execution layer.
 TicketId = uint64
 ```
 
-#### `AOTBlobBundle`
+#### `Ticket`
 
 *[New in Heze:EIP-XXXX]*
 
-`AOTBlobBundle` represents a bundle of AOT blob data associated with a ticket.
-The ticket holder signs this bundle before computing and distributing the
+`Ticket` represents an active blob ticket as returned by the execution layer
+via the engine API. Consensus layer nodes use this to validate incoming AOT
+data column sidecars.
+
+*Note*: This is the consensus layer representation of an active ticket. The
+source of truth for ticket state is the ticket system contract on the execution
+layer. Clients obtain active tickets via the `engine_forkchoiceUpdated` response.
+Clients refresh their active tickets everytime `engine_forkchoiceUpdated` is called. 
+
+```python
+class Ticket(Container):
+    ticket_id: TicketId
+    blob_count: uint64
+    bls_pubkey: BLSPubkey
+    target_slot: Slot
+    owner: ExecutionAddress
+```
+
+#### `AOTBlobInfo`
+
+*[New in Heze:EIP-XXXX]*
+
+`AOTBlobInfo` contains the metadata for an AOT blob submission associated with
+a ticket. The ticket holder signs this before computing and distributing the
 corresponding data columns.
 
 ```python
-class AOTBlobBundle(Container):
+class AOTBlobInfo(Container):
     ticket_id: TicketId
     target_slot: Slot
     blob_kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
 ```
 
-#### `SignedAOTBlobBundle`
+#### `SignedAOTBlobInfo`
 
 *[New in Heze:EIP-XXXX]*
 
 ```python
-class SignedAOTBlobBundle(Container):
-    message: AOTBlobBundle
+class SignedAOTBlobInfo(Container):
+    message: AOTBlobInfo
     # BLS signature using the pubkey registered in the ticket
     signature: BLSSignature
 ```
@@ -238,17 +261,17 @@ def is_valid_inclusion_list_signature(
     return bls.Verify(pubkey, signing_root, signed_inclusion_list.signature)
 ```
 
-#### New `is_valid_aot_blob_bundle_signature`
+#### New `is_valid_aot_blob_info_signature`
 
 *[New in Heze:EIP-XXXX]*
 
 ```python
-def is_valid_aot_blob_bundle_signature(
-    signed_aot_blob_bundle: SignedAOTBlobBundle,
+def is_valid_aot_blob_info_signature(
+    signed_aot_blob_info: SignedAOTBlobInfo,
     pubkey: BLSPubkey,
 ) -> bool:
     """
-    Check if ``signed_aot_blob_bundle`` has a valid signature with respect to
+    Check if ``signed_aot_blob_info`` has a valid signature with respect to
     the BLS public key registered in the corresponding ticket.
 
     *Note*: The ``pubkey`` is the BLS public key included in the ticket on the
@@ -256,8 +279,8 @@ def is_valid_aot_blob_bundle_signature(
     public keys via the ``engine_forkchoiceUpdated`` API.
     """
     domain = compute_domain(DOMAIN_AOT_BLOB)
-    signing_root = compute_signing_root(signed_aot_blob_bundle.message, domain)
-    return bls.Verify(pubkey, signing_root, signed_aot_blob_bundle.signature)
+    signing_root = compute_signing_root(signed_aot_blob_info.message, domain)
+    return bls.Verify(pubkey, signing_root, signed_aot_blob_info.signature)
 ```
 
 ### Beacon state accessors

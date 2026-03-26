@@ -48,16 +48,16 @@ specifications of previous upgrades, and assumes them as pre-requisite.
 
 *[New in Heze:EIP-XXXX]*
 
-`AOTDataColumnSidecar` carries a single data column for an AOT blob bundle.
+`AOTDataColumnSidecar` carries a single data column for an AOT blob submission.
 It includes the `ticket_id` and `target_slot` to identify the corresponding
-ticket, and the BLS signature of the original `AOTBlobBundle` for
+ticket, and the BLS signature of the original `AOTBlobInfo` for
 authentication.
 
-*Note*: The signature here is the signature over the original `AOTBlobBundle`,
+*Note*: The signature here is the signature over the original `AOTBlobInfo`,
 not over each individual `AOTDataColumnSidecar`.
 
 <!-- TODO: Evaluate whether the ticket holder should instead sign each
-individual `AOTDataColumnSidecar` rather than signing the `AOTBlobBundle` once.
+individual `AOTDataColumnSidecar` rather than signing the `AOTBlobInfo` once.
 Signing the bundle is more efficient (one signature for all columns) but signing
 each sidecar would allow per-column authentication without needing the full
 bundle context. -->
@@ -66,12 +66,13 @@ bundle context. -->
 class AOTDataColumnSidecar(Container):
     index: ColumnIndex
     column: List[Cell, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
+    kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
     kzg_proofs: List[KZGProof, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
     # [New in Heze:EIP-XXXX]
     ticket_id: TicketId
     target_slot: Slot
-    # BLS signature of the original AOTBlobBundle (signed by the ticket's registered pubkey)
-    blob_bundle_signature: BLSSignature
+    # BLS signature of the original AOTBlobInfo (signed by the ticket's registered pubkey)
+    blob_info_signature: BLSSignature
 ```
 
 ### Helpers
@@ -227,10 +228,6 @@ the `sidecar: DataColumnSidecar` on the network, assuming the alias
 - _[IGNORE]_ The sidecar is the first sidecar for the tuple
   `(sidecar.beacon_block_root, sidecar.index)` with valid kzg proof.
 
-*Note*: If the sidecar fails deferred validation, its forwarding peers MUST be
-downscored retroactively. If validation succeeds, the client MUST re-broadcast
-the sidecar.
-
 ###### `aot_data_column_sidecar_{subnet_id}`
 
 *[New in Heze:EIP-XXXX]*
@@ -259,18 +256,18 @@ the engine API:
   engine API.
 - _[REJECT]_ The sidecar's `target_slot` matches the ticket's target slot --
   i.e. `sidecar.target_slot == ticket.target_slot`.
-- _[REJECT]_ The `blob_bundle_signature` is a valid BLS signature over the
-  reconstructed `AOTBlobBundle` with respect to the ticket's registered BLS
+- _[REJECT]_ The `blob_info_signature` is a valid BLS signature over the
+  reconstructed `AOTBlobInfo` with respect to the ticket's registered BLS
   public key -- i.e.
-  `is_valid_aot_blob_bundle_signature(SignedAOTBlobBundle(message=aot_blob_bundle, signature=sidecar.blob_bundle_signature), ticket.bls_pubkey)`
-  returns `True`, where `aot_blob_bundle` is reconstructed from the sidecar's
+  `is_valid_aot_blob_info_signature(SignedAOTBlobInfo(message=aot_blob_info, signature=sidecar.blob_info_signature), ticket.bls_pubkey)`
+  returns `True`, where `aot_blob_info` is reconstructed from the sidecar's
   KZG commitments.
 - _[REJECT]_ The sidecar is structurally valid as verified by
-  `verify_aot_data_column_sidecar(sidecar, aot_blob_bundle.blob_kzg_commitments)`.
+  `verify_aot_data_column_sidecar(sidecar, aot_blob_info.blob_kzg_commitments)`.
 - _[REJECT]_ The sidecar is for the correct subnet -- i.e.
   `compute_subnet_for_data_column_sidecar(sidecar.index) == subnet_id`.
 - _[REJECT]_ The sidecar's column data is valid as verified by
-  `verify_aot_data_column_sidecar_kzg_proofs(sidecar, aot_blob_bundle.blob_kzg_commitments)`.
+  `verify_aot_data_column_sidecar_kzg_proofs(sidecar, aot_blob_info.blob_kzg_commitments)`.
 - _[IGNORE]_ The sidecar is the first valid sidecar for the tuple
   `(sidecar.ticket_id, sidecar.index)` with valid KZG proof.
 
