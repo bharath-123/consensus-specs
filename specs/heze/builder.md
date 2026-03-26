@@ -26,12 +26,8 @@ JIT and AOT blob KZG commitments.
    `get_inclusion_list_bits(get_inclusion_list_store(), state, Slot(bid.slot - 1))`.
 2. Set `bid.jit_blob_kzg_commitments` to the commitments for JIT blobs included
    in the execution payload. The builder constructs these from the JIT blobs
-   directly available to them (i.e. from `engine_getPayloadV5`).
+   directly available to them.
 3. Set `bid.aot_blob_kzg_commitments` to the commitments obtained from
    `AOTDataColumnSidecar`s received for active tickets targeting `bid.slot`.
    The `kzg_commitments` field of any received `AOTDataColumnSidecar` contains
    the full list of AOT blob KZG commitments for the corresponding ticket.
-
-*Note*: It is not necessary that the blob transactions associated with the
-`aot_blob_kzg_commitments` be included in the block. The builder only needs to
-be able to assert to the data's availability on the network.
