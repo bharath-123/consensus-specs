@@ -14,6 +14,7 @@
 - [Helpers](#helpers)
   - [Modified `PayloadAttributes`](#modified-payloadattributes)
   - [Modified `Store`](#modified-store)
+  - [Modified `is_data_available`](#modified-is_data_available)
   - [Modified `get_forkchoice_store`](#modified-get_forkchoice_store)
   - [New `record_payload_inclusion_list_satisfaction`](#new-record_payload_inclusion_list_satisfaction)
   - [New `is_payload_inclusion_list_satisfied`](#new-is_payload_inclusion_list_satisfied)
@@ -75,6 +76,13 @@ addition of `inclusion_list_transactions`. Otherwise,
 not empty, the payload build process MUST produce an execution payload that
 satisfies the inclusion list constraints with respect to
 `inclusion_list_transactions`.
+
+*Note [New in Heze:EIP-XXXX]*: The `engine_forkchoiceUpdated` response is
+extended to include `active_tickets`, an array of active blob ticket metadata
+for the current and upcoming slots. Each entry contains the `ticket_id`,
+`blob_count`, `bls_pubkey`, `target_slot`, and `owner`. Clients use this
+information to validate incoming `AOTDataColumnSidecar` messages on the
+consensus layer. See the Engine API specification for details.
 
 ```python
 def notify_forkchoice_updated(
