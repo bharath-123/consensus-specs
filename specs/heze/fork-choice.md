@@ -166,12 +166,11 @@ def retrieve_jit_column_sidecars_and_kzg_commitments(
 ```
 
 ```python
-def retrieve_aot_column_sidecars_and_kzg_commitments(
-    beacon_block_root: Root,
-) -> Tuple[Sequence[AOTDataColumnSidecar], List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]]:
+def retrieve_aot_column_sidecars(
+    aot_blob_kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK],
+) -> Sequence[AOTDataColumnSidecar]:
     # Implementation and context dependent.
-    # For the given block root, returns all AOT column sidecars to sample and
-    # the corresponding AOT KZG commitments from the execution payload bid.
+    # For the given AOT KZG commitments, returns all AOT column sidecars to sample.
     # Raises an exception if they are not available.
     # AOT column sidecars may have been received ahead of block time via the
     # `aot_data_column_sidecar_{subnet_id}` gossip topics.
@@ -179,7 +178,10 @@ def retrieve_aot_column_sidecars_and_kzg_commitments(
 ```
 
 ```python
-def is_data_available(beacon_block_root: Root) -> bool:
+def is_data_available(
+    beacon_block_root: Root,
+    aot_blob_kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK],
+) -> bool:
     # Retrieve and verify JIT data columns
     jit_column_sidecars, jit_kzg_commitments = retrieve_jit_column_sidecars_and_kzg_commitments(
         beacon_block_root
@@ -191,12 +193,10 @@ def is_data_available(beacon_block_root: Root) -> bool:
     )
 
     # Retrieve and verify AOT data columns
-    aot_column_sidecars, aot_kzg_commitments = retrieve_aot_column_sidecars_and_kzg_commitments(
-        beacon_block_root
-    )
+    aot_column_sidecars = retrieve_aot_column_sidecars(aot_blob_kzg_commitments)
     aot_data_available = all(
-        verify_aot_data_column_sidecar(column_sidecar, aot_kzg_commitments)
-        and verify_aot_data_column_sidecar_kzg_proofs(column_sidecar, aot_kzg_commitments)
+        verify_aot_data_column_sidecar(column_sidecar, aot_blob_kzg_commitments)
+        and verify_aot_data_column_sidecar_kzg_proofs(column_sidecar, aot_blob_kzg_commitments)
         for column_sidecar in aot_column_sidecars
     )
 
@@ -366,12 +366,15 @@ def on_execution_payload_envelope(
 
     # Check if blob data is available
     # If not, this payload MAY be queued and subsequently considered when blob data becomes available
-    assert is_data_available(envelope.beacon_block_root)
+    aot_blob_kzg_commitments = state.latest_execution_payload_bid.aot_blob_kzg_commitments
+    assert is_data_available(envelope.beacon_block_root, aot_blob_kzg_commitments)
 
     state = store.block_states[envelope.beacon_block_root]
 
     # Verify the execution payload envelope
     verify_execution_payload_envelope(state, signed_envelope, EXECUTION_ENGINE)
+    # Make a copy of the state to avoid mutability issues
+    state = copy(store.block_states[envelope.beacon_block_root])
 
     # [New in Heze:EIP7805]
     # Check if this payload satisfies the inclusion list constraints

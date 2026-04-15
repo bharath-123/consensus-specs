@@ -13,6 +13,7 @@
     - [Modified `compute_fork_version`](#modified-compute_fork_version)
     - [New `verify_aot_data_column_sidecar`](#new-verify_aot_data_column_sidecar)
     - [New `verify_aot_data_column_sidecar_kzg_proofs`](#new-verify_aot_data_column_sidecar_kzg_proofs)
+    - [New `aot_data_column_sidecar_to_data_column_sidecar`](#new-aot_data_column_sidecar_to_data_column_sidecar)
   - [The gossip domain: gossipsub](#the-gossip-domain-gossipsub)
     - [Topics and messages](#topics-and-messages)
       - [Global topics](#global-topics)
@@ -153,6 +154,25 @@ def verify_aot_data_column_sidecar_kzg_proofs(
         cell_indices=cell_indices,
         cells=sidecar.column,
         proofs_bytes=sidecar.kzg_proofs,
+    )
+```
+
+#### New `aot_data_column_sidecar_to_data_column_sidecar`
+
+*[New in Heze:EIP-XXXX]*
+
+```python
+def aot_data_column_sidecar_to_data_column_sidecar(
+    sidecar: AOTDataColumnSidecar,
+    beacon_block_root: Root,
+    slot: Slot,
+) -> DataColumnSidecar:
+    return DataColumnSidecar(
+        index=sidecar.index,
+        column=sidecar.column,
+        kzg_proofs=sidecar.kzg_proofs,
+        slot=slot,
+        beacon_block_root=beacon_block_root,
     )
 ```
 
