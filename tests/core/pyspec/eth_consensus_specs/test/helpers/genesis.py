@@ -2,12 +2,13 @@ from hashlib import sha256
 
 from eth_consensus_specs.test.helpers.constants import (
     PHASE0,
-    PREVIOUS_FORK_OF,
 )
 from eth_consensus_specs.test.helpers.execution_payload import (
     compute_el_header_block_hash,
 )
 from eth_consensus_specs.test.helpers.forks import (
+    get_fork_version,
+    get_previous_fork_version,
     is_post_altair,
     is_post_bellatrix,
     is_post_capella,
@@ -144,12 +145,8 @@ def create_genesis_state(spec, validator_balances, activation_threshold):
     current_version = spec.config.GENESIS_FORK_VERSION
 
     if spec.fork != PHASE0:
-        previous_fork = PREVIOUS_FORK_OF[spec.fork]
-        if previous_fork == PHASE0:
-            previous_version = spec.config.GENESIS_FORK_VERSION
-        else:
-            previous_version = getattr(spec.config, f"{previous_fork.upper()}_FORK_VERSION")
-        current_version = getattr(spec.config, f"{spec.fork.upper()}_FORK_VERSION")
+        previous_version = get_previous_fork_version(spec, spec.fork)
+        current_version = get_fork_version(spec, spec.fork)
 
     genesis_block_body = spec.BeaconBlockBody()
 
@@ -200,8 +197,19 @@ def create_genesis_state(spec, validator_balances, activation_threshold):
         state.next_sync_committee = spec.get_next_sync_committee(state)
 
     if is_post_gloas(spec):
-        # Initialize the latest_execution_payload_bid
+        # Initialize the latest_execution_payload_bid (match fork upgrade in fork.md).
+        # Genesis payload is EMPTY: ``latest_block_hash`` stays at default zero while
+        # ``bid.block_hash`` is set to the eth1 block hash, so the parent of any
+        # first post-genesis block is (correctly) treated as empty.
+        state.latest_execution_payload_bid = spec.ExecutionPayloadBid(
+            block_hash=spec.Hash32(eth1_block_hash),
+            execution_requests_root=spec.hash_tree_root(spec.ExecutionRequests()),
+        )
         genesis_block_body.signed_execution_payload_bid.message.block_hash = eth1_block_hash
+        # Recompute body_root after modifying the genesis block body
+        state.latest_block_header = spec.BeaconBlockHeader(
+            body_root=spec.hash_tree_root(genesis_block_body)
+        )
     elif is_post_bellatrix(spec):
         # Initialize the execution payload header (with block number and genesis time set to 0)
         state.latest_execution_payload_header = get_sample_genesis_execution_payload_header(
@@ -235,6 +243,7 @@ def create_genesis_state(spec, validator_balances, activation_threshold):
             spec.BuilderPendingPayment() for _ in range(2 * spec.SLOTS_PER_EPOCH)
         ]
         state.builder_pending_withdrawals = []
+        state.ptc_window = spec.initialize_ptc_window(state)
 
     if is_post_fulu(spec):
         # Initialize proposer lookahead list
