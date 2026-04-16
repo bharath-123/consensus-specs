@@ -60,7 +60,7 @@ Heze is a consensus-layer upgrade containing a number of features. Including:
 | `INCLUSION_LIST_COMMITTEE_SIZE` | `uint64(2**4)` (=16) |
 
 ### Blob streaming
-
+<!-- TODO: We should specify the max JIT and AOT in a block via the BPO params --->
 | Name                                | Value                                           |
 | ----------------------------------- | ----------------------------------------------- |
 | `MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK` | `uint64(TBD)`                                  |
