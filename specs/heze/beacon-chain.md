@@ -9,10 +9,17 @@
   - [Domains](#domains)
 - [Preset](#preset)
   - [Inclusion list committee](#inclusion-list-committee)
+  - [Blob streaming](#blob-streaming)
+- [Configuration](#configuration)
+  - [Blob streaming parameters](#blob-streaming-parameters)
 - [Containers](#containers)
   - [New containers](#new-containers)
     - [`InclusionList`](#inclusionlist)
     - [`SignedInclusionList`](#signedinclusionlist)
+    - [`TicketId`](#ticketid)
+    - [`Ticket`](#ticket)
+    - [`AOTBlobInfo`](#aotblobinfo)
+    - [`SignedAOTBlobInfo`](#signedaotblobinfo)
   - [Modified containers](#modified-containers)
     - [`ExecutionPayloadBid`](#executionpayloadbid)
     - [`SignedExecutionPayloadBid`](#signedexecutionpayloadbid)
@@ -20,6 +27,7 @@
 - [Helpers](#helpers)
   - [Predicates](#predicates)
     - [New `is_valid_inclusion_list_signature`](#new-is_valid_inclusion_list_signature)
+    - [New `is_valid_aot_blob_info_signature`](#new-is_valid_aot_blob_info_signature)
   - [Beacon state accessors](#beacon-state-accessors)
     - [New `get_inclusion_list_committee`](#new-get_inclusion_list_committee)
 
@@ -31,6 +39,8 @@ Heze is a consensus-layer upgrade containing a number of features. Including:
 
 - [EIP-7805](https://eips.ethereum.org/EIPS/eip-7805): Fork-choice enforced
   Inclusion Lists (FOCIL)
+- [EIP-XXXX](https://hackmd.io/hQ6I9k33QK-L5sJfpAljmA): Blob Streaming
+  (Two-tier blob propagation with AOT and JIT blobs)
 
 ## Constants
 
@@ -39,6 +49,7 @@ Heze is a consensus-layer upgrade containing a number of features. Including:
 | Name                              | Value                      |
 | --------------------------------- | -------------------------- |
 | `DOMAIN_INCLUSION_LIST_COMMITTEE` | `DomainType('0x0E000000')` |
+| `DOMAIN_AOT_BLOB`                 | `DomainType('0x0F000000')` |
 
 ## Preset
 
@@ -47,6 +58,21 @@ Heze is a consensus-layer upgrade containing a number of features. Including:
 | Name                            | Value                |
 | ------------------------------- | -------------------- |
 | `INCLUSION_LIST_COMMITTEE_SIZE` | `uint64(2**4)` (=16) |
+
+### Blob streaming
+<!-- TODO: We should specify the max JIT and AOT in a block via the BPO params --->
+| Name                                | Value                                           |
+| ----------------------------------- | ----------------------------------------------- |
+| `MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK` | `uint64(TBD)`                                  |
+| `MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK` | `uint64(TBD)`                                  |
+
+## Configuration
+
+### Blob streaming parameters
+
+| Name                              | Value        | Description                                            |
+| --------------------------------- | ------------ | ------------------------------------------------------ |
+| `AOT_PROPAGATION_WINDOW_SLOTS`    | `uint64(1)`  | Number of slots ahead AOT data columns can propagate   |
 
 ## Containers
 
@@ -70,6 +96,63 @@ class SignedInclusionList(Container):
     signature: BLSSignature
 ```
 
+#### `TicketId`
+
+A `TicketId` is a `uint64` that uniquely identifies a blob ticket purchased
+through the ticket system contract on the execution layer.
+
+```python
+TicketId = uint64
+```
+
+#### `Ticket`
+
+*[New in Heze:EIP-XXXX]*
+
+`Ticket` represents an active blob ticket as returned by the execution layer
+via the engine API. Consensus layer nodes use this to validate incoming AOT
+data column sidecars.
+
+*Note*: This is the consensus layer representation of an active ticket. The
+source of truth for ticket state is the ticket system contract on the execution
+layer. Clients obtain active tickets via the `engine_forkchoiceUpdated` response.
+Clients refresh their active tickets everytime `engine_forkchoiceUpdated` is called. 
+
+```python
+class Ticket(Container):
+    ticket_id: TicketId
+    blob_count: uint64
+    bls_pubkey: BLSPubkey
+    target_slot: Slot
+    owner: ExecutionAddress
+```
+
+#### `AOTBlobInfo`
+
+*[New in Heze:EIP-XXXX]*
+
+`AOTBlobInfo` contains the metadata for an AOT blob submission associated with
+a ticket. The ticket holder signs this before computing and distributing the
+corresponding data columns.
+
+```python
+class AOTBlobInfo(Container):
+    ticket_id: TicketId
+    target_slot: Slot
+    blob_kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
+```
+
+#### `SignedAOTBlobInfo`
+
+*[New in Heze:EIP-XXXX]*
+
+```python
+class SignedAOTBlobInfo(Container):
+    message: AOTBlobInfo
+    # BLS signature using the pubkey registered in the ticket
+    signature: BLSSignature
+```
+
 ### Modified containers
 
 #### `ExecutionPayloadBid`
@@ -86,8 +169,11 @@ class ExecutionPayloadBid(Container):
     slot: Slot
     value: Gwei
     execution_payment: Gwei
-    blob_kzg_commitments: List[KZGCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK]
     execution_requests_root: Root
+    # [Modified in Heze:EIP-XXXX]
+    # Replaced `blob_kzg_commitments` with separate JIT and AOT commitment lists
+    jit_blob_kzg_commitments: List[KZGCommitment, MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK]
+    aot_blob_kzg_commitments: List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
     # [New in Heze:EIP7805]
     inclusion_list_bits: Bitvector[INCLUSION_LIST_COMMITTEE_SIZE]
 ```
@@ -173,6 +259,28 @@ def is_valid_inclusion_list_signature(
     domain = get_domain(state, DOMAIN_INCLUSION_LIST_COMMITTEE, compute_epoch_at_slot(message.slot))
     signing_root = compute_signing_root(message, domain)
     return bls.Verify(pubkey, signing_root, signed_inclusion_list.signature)
+```
+
+#### New `is_valid_aot_blob_info_signature`
+
+*[New in Heze:EIP-XXXX]*
+
+```python
+def is_valid_aot_blob_info_signature(
+    signed_aot_blob_info: SignedAOTBlobInfo,
+    pubkey: BLSPubkey,
+) -> bool:
+    """
+    Check if ``signed_aot_blob_info`` has a valid signature with respect to
+    the BLS public key registered in the corresponding ticket.
+
+    *Note*: The ``pubkey`` is the BLS public key included in the ticket on the
+    execution layer. Clients obtain the active tickets and their associated
+    public keys via the ``engine_forkchoiceUpdated`` API.
+    """
+    domain = compute_domain(DOMAIN_AOT_BLOB)
+    signing_root = compute_signing_root(signed_aot_blob_info.message, domain)
+    return bls.Verify(pubkey, signing_root, signed_aot_blob_info.signature)
 ```
 
 ### Beacon state accessors

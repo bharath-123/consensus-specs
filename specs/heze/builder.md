@@ -19,8 +19,15 @@ builder" to implement Heze.
 
 ### Constructing the `SignedExecutionPayloadBid`
 
-*Note*: The only change made to `SignedExecutionPayloadBid` is to set
-`bid.inclusion_list_bits` based on the builder's local view of inclusion lists.
+*Note*: In addition to setting `bid.inclusion_list_bits`, the builder sets the
+JIT and AOT blob KZG commitments.
 
 1. Set `bid.inclusion_list_bits` to
    `get_inclusion_list_bits(get_inclusion_list_store(), state, Slot(bid.slot - 1))`.
+2. Set `bid.jit_blob_kzg_commitments` to the commitments for JIT blobs included
+   in the execution payload. The builder constructs these from the JIT blobs
+   directly available to them.
+3. Set `bid.aot_blob_kzg_commitments` to the commitments obtained from
+   `AOTDataColumnSidecar`s received for active tickets targeting `bid.slot`.
+   The `kzg_commitments` field of any received `AOTDataColumnSidecar` contains
+   the full list of AOT blob KZG commitments for the corresponding ticket.

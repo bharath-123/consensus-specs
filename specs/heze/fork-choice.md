@@ -14,6 +14,7 @@
 - [Helpers](#helpers)
   - [Modified `PayloadAttributes`](#modified-payloadattributes)
   - [Modified `Store`](#modified-store)
+  - [Modified `is_data_available`](#modified-is_data_available)
   - [Modified `get_forkchoice_store`](#modified-get_forkchoice_store)
   - [New `record_payload_inclusion_list_satisfaction`](#new-record_payload_inclusion_list_satisfaction)
   - [New `is_payload_inclusion_list_satisfied`](#new-is_payload_inclusion_list_satisfied)
@@ -76,6 +77,13 @@ not empty, the payload build process MUST produce an execution payload that
 satisfies the inclusion list constraints with respect to
 `inclusion_list_transactions`.
 
+*Note [New in Heze:EIP-XXXX]*: The `engine_forkchoiceUpdated` response is
+extended to include `active_tickets`, an array of active blob ticket metadata
+for the current and upcoming slots. Each entry contains the `ticket_id`,
+`blob_count`, `bls_pubkey`, `target_slot`, and `owner`. Clients use this
+information to validate incoming `AOTDataColumnSidecar` messages on the
+consensus layer.
+
 ```python
 def notify_forkchoice_updated(
     self: ExecutionEngine,
@@ -135,6 +143,64 @@ class Store(object):
     )
     # [New in Heze:EIP7805]
     payload_inclusion_list_satisfaction: Dict[Root, boolean] = field(default_factory=dict)
+```
+
+### Modified `is_data_available`
+
+*[Modified in Heze:EIP-XXXX]*
+
+`is_data_available` is modified to separately retrieve and verify JIT and AOT
+data columns against their respective KZG commitments.
+
+```python
+def retrieve_jit_column_sidecars_and_kzg_commitments(
+    beacon_block_root: Root,
+) -> Tuple[Sequence[DataColumnSidecar], List[KZGCommitment, MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK]]:
+    # Implementation and context dependent.
+    # For the given block root, returns all JIT column sidecars to sample and
+    # the corresponding JIT KZG commitments from the execution payload bid.
+    # Raises an exception if they are not available.
+    # The p2p network does not guarantee sidecar retrieval outside of
+    # `MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS` epochs.
+    ...
+```
+
+```python
+def retrieve_aot_column_sidecars_and_kzg_commitments(
+    beacon_block_root: Root,
+) -> Tuple[Sequence[AOTDataColumnSidecar], List[KZGCommitment, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]]:
+    # Implementation and context dependent.
+    # For the given block root, returns all AOT column sidecars to sample and
+    # the corresponding AOT KZG commitments from the execution payload bid.
+    # Raises an exception if they are not available.
+    # AOT column sidecars may have been received ahead of block time via the
+    # `aot_data_column_sidecar_{subnet_id}` gossip topics.
+    ...
+```
+
+```python
+def is_data_available(beacon_block_root: Root) -> bool:
+    # Retrieve and verify JIT data columns
+    jit_column_sidecars, jit_kzg_commitments = retrieve_jit_column_sidecars_and_kzg_commitments(
+        beacon_block_root
+    )
+    jit_data_available = all(
+        verify_data_column_sidecar(column_sidecar, jit_kzg_commitments)
+        and verify_data_column_sidecar_kzg_proofs(column_sidecar, jit_kzg_commitments)
+        for column_sidecar in jit_column_sidecars
+    )
+
+    # Retrieve and verify AOT data columns
+    aot_column_sidecars, aot_kzg_commitments = retrieve_aot_column_sidecars_and_kzg_commitments(
+        beacon_block_root
+    )
+    aot_data_available = all(
+        verify_aot_data_column_sidecar(column_sidecar, aot_kzg_commitments)
+        and verify_aot_data_column_sidecar_kzg_proofs(column_sidecar, aot_kzg_commitments)
+        for column_sidecar in aot_column_sidecars
+    )
+
+    return jit_data_available and aot_data_available
 ```
 
 ### Modified `get_forkchoice_store`
@@ -306,6 +372,8 @@ def on_execution_payload_envelope(
 
     # Verify the execution payload envelope
     verify_execution_payload_envelope(state, signed_envelope, EXECUTION_ENGINE)
+    # Make a copy of the state to avoid mutability issues
+    state = copy(store.block_states[envelope.beacon_block_root])
 
     # [New in Heze:EIP7805]
     # Check if this payload satisfies the inclusion list constraints
