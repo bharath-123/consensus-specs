@@ -17,6 +17,12 @@ from eth_consensus_specs.test.helpers.forks import (
     is_post_fulu,
     is_post_gloas,
 )
+from eth_consensus_specs.test.helpers.fulu.state import (
+    initialize_proposer_lookahead,
+)
+from eth_consensus_specs.test.helpers.gloas.state import (
+    initialize_ptc_window,
+)
 from eth_consensus_specs.test.helpers.keys import builder_pubkeys, pubkeys
 
 
@@ -201,11 +207,16 @@ def create_genesis_state(spec, validator_balances, activation_threshold):
         # Genesis payload is EMPTY: ``latest_block_hash`` stays at default zero while
         # ``bid.block_hash`` is set to the eth1 block hash, so the parent of any
         # first post-genesis block is (correctly) treated as empty.
+        state.latest_block_hash = spec.Hash32()
+        empty_requests_root = spec.hash_tree_root(spec.ExecutionRequests())
         state.latest_execution_payload_bid = spec.ExecutionPayloadBid(
             block_hash=spec.Hash32(eth1_block_hash),
-            execution_requests_root=spec.hash_tree_root(spec.ExecutionRequests()),
+            execution_requests_root=empty_requests_root,
         )
         genesis_block_body.signed_execution_payload_bid.message.block_hash = eth1_block_hash
+        genesis_block_body.signed_execution_payload_bid.message.execution_requests_root = (
+            empty_requests_root
+        )
         # Recompute body_root after modifying the genesis block body
         state.latest_block_header = spec.BeaconBlockHeader(
             body_root=spec.hash_tree_root(genesis_block_body)
@@ -243,10 +254,10 @@ def create_genesis_state(spec, validator_balances, activation_threshold):
             spec.BuilderPendingPayment() for _ in range(2 * spec.SLOTS_PER_EPOCH)
         ]
         state.builder_pending_withdrawals = []
-        state.ptc_window = spec.initialize_ptc_window(state)
+        state.ptc_window = initialize_ptc_window(spec, state)
 
     if is_post_fulu(spec):
         # Initialize proposer lookahead list
-        state.proposer_lookahead = spec.initialize_proposer_lookahead(state)
+        state.proposer_lookahead = initialize_proposer_lookahead(spec, state)
 
     return state

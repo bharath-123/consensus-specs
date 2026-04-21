@@ -102,9 +102,10 @@ proposer what it promised whether it submits the payload or not.
 Builders can broadcast a payload bid for the current or the next slot's proposer
 to include. They produce a `SignedExecutionPayloadBid` as follows.
 
-01. Set `bid.parent_block_hash` to the current head of the execution chain. This
-    is `state.latest_execution_payload_bid.block_hash` if
-    `get_head(store).payload_status == PAYLOAD_STATUS_FULL`, otherwise
+01. Set `bid.parent_block_hash` to the current head of the execution chain. Let
+    `parent_root = hash_tree_root(state.latest_block_header)`. This is
+    `state.latest_execution_payload_bid.block_hash` if
+    `should_extend_payload(store, parent_root)` is true, otherwise
     `state.latest_execution_payload_bid.parent_block_hash`.
 02. Set `bid.parent_block_root` to be the head of the consensus chain. This can
     be obtained from the beacon state as
@@ -113,7 +114,7 @@ to include. They produce a `SignedExecutionPayloadBid` as follows.
     come from the same `state` and `store` by the method described in this and
     the previous point.
 03. Construct an execution payload. This can be performed with an external
-    execution engine via a call to `engine_getPayloadV5`.
+    execution engine via a call to `engine_getPayloadV6`.
 04. Set `bid.block_hash` to be the block hash of the constructed payload, that
     is `payload.block_hash`.
 05. Set `bid.prev_randao` to be the previous RANDAO of the constructed payload,
@@ -135,10 +136,10 @@ to include. They produce a `SignedExecutionPayloadBid` as follows.
     execution-layer payment. Bids with non-zero `execution_payment` **MUST NOT**
     be broadcast to the `execution_payload_bid` gossip topic.
 12. Set `bid.blob_kzg_commitments` to be the `blobsbundle.commitments` field
-    returned by `engine_getPayloadV5`.
+    returned by `engine_getPayloadV6`.
 13. Set `bid.execution_requests_root` to `hash_tree_root(execution_requests)`,
     where `execution_requests` is the `ExecutionRequests` field returned by
-    `engine_getPayloadV5`.
+    `engine_getPayloadV6`.
 
 After building the `bid`, the builder obtains a `signature` of the bid by using:
 
@@ -243,7 +244,6 @@ alias `bid` to be the committed `ExecutionPayloadBid` in
 3. Set `envelope.builder_index` to be the index of the builder performing these
    steps. This field **MUST** be `bid.builder_index`.
 4. Set `envelope.beacon_block_root` to be `hash_tree_root(block)`.
-5. Set `envelope.slot` to be `block.slot`.
 
 After preparing the `envelope` the builder signs it using:
 

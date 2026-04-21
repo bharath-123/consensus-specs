@@ -34,6 +34,7 @@
   - [Modified containers](#modified-containers)
     - [`BeaconBlockBody`](#beaconblockbody)
     - [`BeaconState`](#beaconstate)
+    - [`ExecutionPayload`](#executionpayload)
 - [Dataclasses](#dataclasses)
   - [Modified dataclasses](#modified-dataclasses)
     - [`ExpectedWithdrawals`](#expectedwithdrawals)
@@ -61,9 +62,7 @@
     - [New `get_builder_payment_quorum_threshold`](#new-get_builder_payment_quorum_threshold)
   - [Beacon state mutators](#beacon-state-mutators)
     - [New `initiate_builder_exit`](#new-initiate_builder_exit)
-  - [Execution payload verification](#execution-payload-verification)
-    - [New `verify_execution_payload_envelope_signature`](#new-verify_execution_payload_envelope_signature)
-    - [New `verify_execution_payload_envelope`](#new-verify_execution_payload_envelope)
+    - [New `settle_builder_payment`](#new-settle_builder_payment)
 - [Beacon chain state transition function](#beacon-chain-state-transition-function)
   - [Modified `process_slot`](#modified-process_slot)
   - [Epoch processing](#epoch-processing)
@@ -112,12 +111,14 @@ Gloas is a consensus-layer upgrade containing a number of features. Including:
 
 - [EIP-7732](https://eips.ethereum.org/EIPS/eip-7732): Enshrined
   Proposer-Builder Separation
+- [EIP-7843](https://eips.ethereum.org/EIPS/eip-7843): SLOTNUM opcode
 
 ## Types
 
-| Name           | SSZ equivalent | Description            |
-| -------------- | -------------- | ---------------------- |
-| `BuilderIndex` | `uint64`       | Builder registry index |
+| Name              | SSZ equivalent                        | Description                   |
+| ----------------- | ------------------------------------- | ----------------------------- |
+| `BuilderIndex`    | `uint64`                              | Builder registry index        |
+| `BlockAccessList` | `ByteList[MAX_BYTES_PER_TRANSACTION]` | RLP encoded block access list |
 
 ## Constants
 
@@ -288,7 +289,6 @@ class ExecutionPayloadEnvelope(Container):
     execution_requests: ExecutionRequests
     builder_index: BuilderIndex
     beacon_block_root: Root
-    slot: Slot
 ```
 
 #### `SignedExecutionPayloadEnvelope`
@@ -363,7 +363,7 @@ class BeaconState(Container):
     # [Modified in Gloas:EIP7732]
     # Removed `latest_execution_payload_header`
     # [New in Gloas:EIP7732]
-    latest_execution_payload_bid: ExecutionPayloadBid
+    latest_block_hash: Hash32
     next_withdrawal_index: WithdrawalIndex
     next_withdrawal_validator_index: ValidatorIndex
     historical_summaries: List[HistoricalSummary, HISTORICAL_ROOTS_LIMIT]
@@ -388,11 +388,38 @@ class BeaconState(Container):
     # [New in Gloas:EIP7732]
     builder_pending_withdrawals: List[BuilderPendingWithdrawal, BUILDER_PENDING_WITHDRAWALS_LIMIT]
     # [New in Gloas:EIP7732]
-    latest_block_hash: Hash32
+    latest_execution_payload_bid: ExecutionPayloadBid
     # [New in Gloas:EIP7732]
     payload_expected_withdrawals: List[Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD]
     # [New in Gloas:EIP7732]
     ptc_window: Vector[Vector[ValidatorIndex, PTC_SIZE], (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH]
+```
+
+#### `ExecutionPayload`
+
+```python
+class ExecutionPayload(Container):
+    parent_hash: Hash32
+    fee_recipient: ExecutionAddress
+    state_root: Bytes32
+    receipts_root: Bytes32
+    logs_bloom: ByteVector[BYTES_PER_LOGS_BLOOM]
+    prev_randao: Bytes32
+    block_number: uint64
+    gas_limit: uint64
+    gas_used: uint64
+    timestamp: uint64
+    extra_data: ByteList[MAX_EXTRA_DATA_BYTES]
+    base_fee_per_gas: uint256
+    block_hash: Hash32
+    transactions: List[Transaction, MAX_TRANSACTIONS_PER_PAYLOAD]
+    withdrawals: List[Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD]
+    blob_gas_used: uint64
+    excess_blob_gas: uint64
+    # [New in Gloas:EIP7928]
+    block_access_list: BlockAccessList
+    # [New in Gloas:EIP7843]
+    slot_number: uint64
 ```
 
 ## Dataclasses
@@ -770,95 +797,20 @@ def initiate_builder_exit(state: BeaconState, builder_index: BuilderIndex) -> No
     """
     Initiate the exit of the builder with index ``index``.
     """
-    # Return if builder already initiated exit
-    builder = state.builders[builder_index]
-    if builder.withdrawable_epoch != FAR_FUTURE_EPOCH:
-        return
-
     # Set builder exit epoch
+    builder = state.builders[builder_index]
     builder.withdrawable_epoch = get_current_epoch(state) + MIN_BUILDER_WITHDRAWABILITY_DELAY
 ```
 
-### Execution payload verification
-
-#### New `verify_execution_payload_envelope_signature`
+#### New `settle_builder_payment`
 
 ```python
-def verify_execution_payload_envelope_signature(
-    state: BeaconState, signed_envelope: SignedExecutionPayloadEnvelope
-) -> bool:
-    builder_index = signed_envelope.message.builder_index
-    if builder_index == BUILDER_INDEX_SELF_BUILD:
-        validator_index = state.latest_block_header.proposer_index
-        pubkey = state.validators[validator_index].pubkey
-    else:
-        pubkey = state.builders[builder_index].pubkey
-
-    signing_root = compute_signing_root(
-        signed_envelope.message, get_domain(state, DOMAIN_BEACON_BUILDER)
-    )
-    return bls.Verify(pubkey, signing_root, signed_envelope.signature)
-```
-
-#### New `verify_execution_payload_envelope`
-
-*Note*: `verify_execution_payload_envelope` is a verification helper called by
-fork-choice when importing a signed execution payload. It verifies the payload
-against the execution engine without processing it. Payload processing is
-deferred to the next beacon block via `process_parent_execution_payload`.
-
-```python
-def verify_execution_payload_envelope(
-    state: BeaconState,
-    signed_envelope: SignedExecutionPayloadEnvelope,
-    execution_engine: ExecutionEngine,
-) -> None:
-    envelope = signed_envelope.message
-    payload = envelope.payload
-
-    # Verify signature
-    assert verify_execution_payload_envelope_signature(state, signed_envelope)
-
-    # Cache latest block header state root
-    header = copy(state.latest_block_header)
-    header.state_root = hash_tree_root(state)
-
-    # Verify consistency with the beacon block
-    assert envelope.beacon_block_root == hash_tree_root(header)
-    assert envelope.slot == state.slot
-
-    # Verify consistency with the committed bid
-    committed_bid = state.latest_execution_payload_bid
-    assert envelope.builder_index == committed_bid.builder_index
-    assert committed_bid.prev_randao == payload.prev_randao
-    assert hash_tree_root(envelope.execution_requests) == committed_bid.execution_requests_root
-
-    # Verify consistency with expected withdrawals
-    assert hash_tree_root(payload.withdrawals) == hash_tree_root(state.payload_expected_withdrawals)
-
-    # Verify the gas_limit
-    assert committed_bid.gas_limit == payload.gas_limit
-    # Verify the block hash
-    assert committed_bid.block_hash == payload.block_hash
-    # Verify consistency of the parent hash with respect to the previous execution payload
-    assert payload.parent_hash == state.latest_block_hash
-    # Verify timestamp
-    assert payload.timestamp == compute_time_at_slot(state, state.slot)
-    # Verify the execution payload is valid
-    versioned_hashes = [
-        kzg_commitment_to_versioned_hash(commitment)
-        # [Modified in Gloas:EIP7732]
-        for commitment in committed_bid.blob_kzg_commitments
-    ]
-    requests = envelope.execution_requests
-    assert execution_engine.verify_and_notify_new_payload(
-        NewPayloadRequest(
-            execution_payload=payload,
-            versioned_hashes=versioned_hashes,
-            parent_beacon_block_root=state.latest_block_header.parent_root,
-            execution_requests=requests,
-        )
-    )
+def settle_builder_payment(state: BeaconState, payment_index: uint64) -> None:
+    assert payment_index < len(state.builder_pending_payments)
+    payment = state.builder_pending_payments[payment_index]
+    if payment.withdrawal.amount > 0:
+        state.builder_pending_withdrawals.append(payment.withdrawal)
+    state.builder_pending_payments[payment_index] = BuilderPendingPayment()
 ```
 
 ## Beacon chain state transition function
@@ -989,9 +941,9 @@ def process_block(state: BeaconState, block: BeaconBlock) -> None:
 ##### New `apply_parent_execution_payload`
 
 *Note*: This function processes the parent's execution requests, queues the
-builder payment, and updates payload availability and the latest block hash. It
-is called by `process_parent_execution_payload` during block processing and by
-the validator during block production before computing withdrawals.
+builder payment, updates payload availability, and updates the latest block
+hash. It is called by `process_parent_execution_payload` during block processing
+and by the validator during block production before computing withdrawals.
 
 ```python
 def apply_parent_execution_payload(
@@ -1012,22 +964,21 @@ def apply_parent_execution_payload(
     for_ops(requests.withdrawals, process_withdrawal_request)
     for_ops(requests.consolidations, process_consolidation_request)
 
-    # Queue the builder payment
+    # Settle the builder payment
     if parent_epoch == get_current_epoch(state):
         payment_index = SLOTS_PER_EPOCH + parent_slot % SLOTS_PER_EPOCH
+        settle_builder_payment(state, payment_index)
     elif parent_epoch == get_previous_epoch(state):
         payment_index = parent_slot % SLOTS_PER_EPOCH
-    else:
-        # If parent is older than previous_epoch, the payment entry has
-        # already been settled or evicted by process_builder_pending_payments
-        # at epoch boundaries. No action needed.
-        payment_index = None
-
-    if payment_index is not None:
-        payment = state.builder_pending_payments[payment_index]
-        if payment.withdrawal.amount > 0:
-            state.builder_pending_withdrawals.append(payment.withdrawal)
-        state.builder_pending_payments[payment_index] = BuilderPendingPayment()
+        settle_builder_payment(state, payment_index)
+    elif parent_bid.value > 0:
+        state.builder_pending_withdrawals.append(
+            BuilderPendingWithdrawal(
+                fee_recipient=parent_bid.fee_recipient,
+                amount=parent_bid.value,
+                builder_index=parent_bid.builder_index,
+            )
+        )
 
     # Update parent payload availability and latest block hash
     state.execution_payload_availability[parent_slot % SLOTS_PER_HISTORICAL_ROOT] = 0b1
@@ -1047,10 +998,9 @@ def process_parent_execution_payload(state: BeaconState, block: BeaconBlock) -> 
     parent_bid = state.latest_execution_payload_bid
     requests = block.body.parent_execution_requests
 
-    # True if this block built on the parent's full payload
-    is_parent_block_full = bid.parent_block_hash == parent_bid.block_hash
-
-    if not is_parent_block_full:
+    is_genesis_block = parent_bid.block_hash == Hash32()
+    is_parent_block_empty = bid.parent_block_hash != parent_bid.block_hash
+    if is_genesis_block or is_parent_block_empty:
         # Parent was EMPTY -- no execution requests expected
         assert requests == ExecutionRequests()
         return
@@ -1237,6 +1187,20 @@ withdrawals in the execution layer. `process_withdrawals` must be called after
 before `process_execution_payload_bid` as the latter function affects validator
 balances.
 
+*Note*: Unlike deposits (which are applied at the child's slot via
+`apply_parent_execution_payload`), withdrawal balance deductions are applied
+immediately via `apply_withdrawals`. Deferring the deduction to the child's slot
+would break the total supply invariant: state transitions between the commitment
+slot and the deduction slot (e.g., `process_pending_consolidations` at an epoch
+boundary) can reduce a validator's balance below the committed withdrawal
+amount, causing `decrease_balance` to saturate at zero. Since the execution
+layer mints the full committed amount regardless, any CL-side saturation creates
+a net supply inflation. As a consequence, `state.balances` reflects the
+withdrawal deduction before the corresponding execution payload is confirmed,
+creating a transient asymmetry with the EL state at `state.latest_block_hash`.
+Off-chain consumers that require CL/EL balance consistency can reconstruct
+pre-deduction balances by adding back `state.payload_expected_withdrawals`.
+
 ```python
 def process_withdrawals(
     state: BeaconState,
@@ -1245,7 +1209,9 @@ def process_withdrawals(
 ) -> None:
     # [New in Gloas:EIP7732]
     # Return early if the parent block is empty
-    if state.latest_block_hash != state.latest_execution_payload_bid.block_hash:
+    is_genesis_block = state.latest_block_hash == Hash32()
+    is_parent_block_empty = state.latest_block_hash != state.latest_execution_payload_bid.block_hash
+    if is_genesis_block or is_parent_block_empty:
         return
 
     # Get expected withdrawals

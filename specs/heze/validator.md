@@ -138,7 +138,7 @@ processed through any empty slots up to the assigned slot using
 
 *Note*: A proposer should produce an execution payload that satisfies the
 inclusion list constraints with respect to the inclusion lists gathered up to
-`get_proposer_inclusion_list_cutoff_ms(epoch)` milliseconds into the slot.
+`get_proposer_inclusion_list_cutoff_ms()` milliseconds into the slot.
 
 ```python
 def prepare_execution_payload(
@@ -150,11 +150,11 @@ def prepare_execution_payload(
     execution_engine: ExecutionEngine,
 ) -> Optional[PayloadId]:
     parent_bid = state.latest_execution_payload_bid
-    head = get_head(store)
-    if head.payload_status == PAYLOAD_STATUS_FULL:
+    parent_root = hash_tree_root(state.latest_block_header)
+    if should_extend_payload(store, parent_root):
+        envelope = store.payloads[parent_root]
         # Make a copy of the state to avoid mutability issues
         state = copy(state)
-        envelope = store.payloads[head.root]
         # Apply parent payload before computing withdrawals
         apply_parent_execution_payload(state, parent_bid, envelope.execution_requests)
         withdrawals = get_expected_withdrawals(state).withdrawals
@@ -170,6 +170,7 @@ def prepare_execution_payload(
         suggested_fee_recipient=suggested_fee_recipient,
         withdrawals=withdrawals,
         parent_beacon_block_root=hash_tree_root(state.latest_block_header),
+        slot_number=state.slot,
         # [New in Heze:EIP7805]
         inclusion_list_transactions=get_inclusion_list_transactions(
             get_inclusion_list_store(), state, Slot(state.slot - 1)
@@ -193,13 +194,12 @@ returns.
 
 If a validator is in the current inclusion list committee, the validator should
 create and broadcast the `signed_inclusion_list` to the global `inclusion_list`
-subnet by `get_inclusion_list_submission_due_ms(epoch)` milliseconds into the
-slot after processing the block for the current slot and confirming it as the
-head. If no block is received by
-`get_inclusion_list_submission_due_ms(epoch) - 1000` milliseconds into the slot,
-the validator should run `get_head` to determine the local head and construct
-and broadcast the inclusion list based on this local head by
-`get_inclusion_list_submission_due_ms(epoch)` milliseconds into the slot.
+subnet by `get_inclusion_list_submission_due_ms()` milliseconds into the slot
+after processing the block for the current slot and confirming it as the head.
+If no block is received by `get_inclusion_list_submission_due_ms() - 1000`
+milliseconds into the slot, the validator should run `get_head` to determine the
+local head and construct and broadcast the inclusion list based on this local
+head by `get_inclusion_list_submission_due_ms()` milliseconds into the slot.
 
 #### Constructing the `SignedInclusionList`
 

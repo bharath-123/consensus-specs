@@ -88,8 +88,8 @@ All validator responsibilities remain unchanged other than the following:
   this becomes a builder's duty.
 - Some attesters are selected per slot to become PTC members, these validators
   must broadcast `PayloadAttestationMessage` objects during the assigned slot
-  before the deadline of `get_payload_attestation_due_ms(epoch)` milliseconds
-  into the slot.
+  before the deadline of `get_payload_attestation_due_ms()` milliseconds into
+  the slot.
 
 ### Attestation
 
@@ -196,7 +196,7 @@ top of a `state` MUST take the following actions in order to construct the
   - The `bid.slot` is for the proposal block slot.
   - The `bid.parent_block_hash` equals
     `state.latest_execution_payload_bid.block_hash` if
-    `get_head(store).payload_status == PAYLOAD_STATUS_FULL`, otherwise
+    `should_extend_payload(store, block.parent_root)` is true, otherwise
     `state.latest_execution_payload_bid.parent_block_hash`.
   - The `bid.parent_block_root` equals the current block's `parent_root`.
 - Select one bid and set
@@ -230,20 +230,20 @@ parent's execution payload. The proposer constructs this field as follows:
 
 - If the parent block is pre-Gloas (first Gloas block), set
   `parent_execution_requests` to an empty `ExecutionRequests()`.
-- If `get_head(store).payload_status == PAYLOAD_STATUS_FULL` (the proposer is
-  building on the parent's full payload), set `parent_execution_requests` to the
-  `ExecutionRequests` from the parent's `ExecutionPayloadEnvelope`.
+- If `should_extend_payload(store, block.parent_root)` is true (the proposer is
+  building on the parent's full payload), set `parent_execution_requests` to
+  `store.payloads[block.parent_root].execution_requests`.
 - Otherwise (the proposer is building on the parent's empty variant), set
   `parent_execution_requests` to an empty `ExecutionRequests()`.
 
 ##### ExecutionPayload
 
 *Note*: `prepare_execution_payload` is modified in Gloas to take `store` as an
-additional parameter. It consults `get_head` to decide whether to build on the
-parent's full payload or its empty variant, selecting both the withdrawals
-source and the execution head for the new payload. When building on a full
-parent, `apply_parent_execution_payload` is called on a state copy so that
-withdrawals are computed against the post-processing state.
+additional parameter. It consults `should_extend_payload` to decide whether to
+build on the parent's full payload or its empty variant, selecting both the
+withdrawals source and the execution head for the new payload. When building on
+a full parent, `apply_parent_execution_payload` is called so that withdrawals
+are computed against the post-processing state.
 
 ```python
 def prepare_execution_payload(
@@ -257,11 +257,11 @@ def prepare_execution_payload(
 ) -> Optional[PayloadId]:
     # [New in Gloas:EIP7732]
     parent_bid = state.latest_execution_payload_bid
-    head = get_head(store)
-    if head.payload_status == PAYLOAD_STATUS_FULL:
+    parent_root = hash_tree_root(state.latest_block_header)
+    if should_extend_payload(store, parent_root):
+        envelope = store.payloads[parent_root]
         # Make a copy of the state to avoid mutability issues
         state = copy(state)
-        envelope = store.payloads[head.root]
         # Apply parent payload before computing withdrawals
         apply_parent_execution_payload(state, parent_bid, envelope.execution_requests)
         withdrawals = get_expected_withdrawals(state).withdrawals
@@ -278,6 +278,8 @@ def prepare_execution_payload(
         # [Modified in Gloas:EIP7732]
         withdrawals=withdrawals,
         parent_beacon_block_root=hash_tree_root(state.latest_block_header),
+        # [New in Gloas:EIP7843]
+        slot_number=state.slot,
     )
     return execution_engine.notify_forkchoice_updated(
         # [Modified in Gloas:EIP7732]
@@ -296,7 +298,7 @@ prepared to submit their PTC attestations during the next epoch.
 
 A validator should create and broadcast the `payload_attestation_message` to the
 global execution attestation subnet within the first
-`get_payload_attestation_due_ms(epoch)` milliseconds of the slot.
+`get_payload_attestation_due_ms()` milliseconds of the slot.
 
 #### Constructing the `PayloadAttestationMessage`
 
@@ -305,7 +307,7 @@ obtained from `get_ptc_assignment` above) then the validator should prepare a
 `PayloadAttestationMessage` for the current slot. Follow the logic below to
 create the `payload_attestation_message` and broadcast to the global
 `payload_attestation_message` pubsub topic within the first
-`get_payload_attestation_due_ms(epoch)` milliseconds of the slot.
+`get_payload_attestation_due_ms()` milliseconds of the slot.
 
 The validator creates `payload_attestation_message` as follows:
 
