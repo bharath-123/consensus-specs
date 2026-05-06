@@ -57,6 +57,12 @@ authentication.
 *Note*: The signature here is the signature over the original `AOTBlobInfo`,
 not over each individual `AOTDataColumnSidecar`.
 
+<!-- TODO: Evaluate whether the ticket holder should instead sign each
+individual `AOTDataColumnSidecar` rather than signing the `AOTBlobInfo` once.
+Signing the bundle is more efficient (one signature for all columns) but signing
+each sidecar would allow per-column authentication without needing the full
+bundle context. -->
+
 ```python
 class AOTDataColumnSidecar(Container):
     index: ColumnIndex

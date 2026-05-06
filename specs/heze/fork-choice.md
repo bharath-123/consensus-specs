@@ -368,6 +368,8 @@ def on_execution_payload_envelope(
 
     # Verify the execution payload envelope
     verify_execution_payload_envelope(state, signed_envelope, EXECUTION_ENGINE)
+    # Make a copy of the state to avoid mutability issues
+    state = copy(store.block_states[envelope.beacon_block_root])
 
     # [New in Heze:EIP7805]
     # Check if this payload satisfies the inclusion list constraints
