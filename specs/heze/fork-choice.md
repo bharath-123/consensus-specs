@@ -98,7 +98,7 @@ def notify_forkchoice_updated(
 
 ### Modified `PayloadAttributes`
 
-`PayloadAttributes` is extended with the `inclusion_list_transactions` field.
+`PayloadAttributes` is extended with the `inclusion_list_transactions` and `aot_blob_versioned_hashes` fields.
 
 ```python
 @dataclass
@@ -111,6 +111,8 @@ class PayloadAttributes(object):
     slot_number: uint64
     # [New in Heze:EIP7805]
     inclusion_list_transactions: Sequence[Transaction]
+    # [New in Heze] AOT blob versioned hashes available to the proposer, grouped per blob bundle
+    aot_blob_versioned_hashes: Sequence[Sequence[VersionedHash]]
 ```
 
 ### Modified `Store`

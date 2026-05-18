@@ -141,6 +141,12 @@ inclusion list constraints with respect to the inclusion lists gathered up to
 `get_proposer_inclusion_list_cutoff_ms()` milliseconds into the slot.
 
 ```python
+def get_aot_blob_versioned_hashes() -> Sequence[Sequence[VersionedHash]]:
+    # [Implementation specific] Return the list of AOT blob versioned hash bundles available to the proposer
+    ...
+```
+
+```python
 def prepare_execution_payload(
     store: Store,
     state: BeaconState,
@@ -175,6 +181,8 @@ def prepare_execution_payload(
         inclusion_list_transactions=get_inclusion_list_transactions(
             get_inclusion_list_store(), state, Slot(state.slot - 1)
         ),
+        # [New in Heze] AOT blob versioned hashes available to the proposer
+        aot_blob_versioned_hashes=get_aot_blob_versioned_hashes(),
     )
     return execution_engine.notify_forkchoice_updated(
         head_block_hash=head_block_hash,
