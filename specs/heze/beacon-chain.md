@@ -171,9 +171,10 @@ class ExecutionPayloadBid(Container):
     execution_payment: Gwei
     execution_requests_root: Root
     # [Modified in Heze:EIP-XXXX]
-    # Replaced `blob_kzg_commitments` with separate JIT and AOT commitment lists
+    # Replaced `blob_kzg_commitments` with the JIT commitment list and, per AOT
+    # ticket, the hash tree root of that ticket's KZG commitment list
     jit_blob_kzg_commitments: List[KZGCommitment, MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK]
-    aot_blob_kzg_commitments: List[List[KZGCommitment, MAX_JIT_BLOB_COMMITMENTS_PER_BLOCK], MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
+    aot_blob_kzg_commitments_roots: List[Root, MAX_AOT_BLOB_COMMITMENTS_PER_BLOCK]
     # [New in Heze:EIP7805]
     inclusion_list_bits: Bitvector[INCLUSION_LIST_COMMITTEE_SIZE]
 ```
