@@ -27,8 +27,7 @@ JIT and AOT blob KZG commitments.
 2. Set `bid.jit_blob_kzg_commitments` to the commitments for JIT blobs included
    in the execution payload. The builder constructs these from the JIT blobs
    directly available to them.
-3. Set `bid.aot_blob_kzg_commitments_roots` to one `Root` per active ticket targeting
-   `bid.slot`, where each `Root` is `hash_tree_root` of that ticket's KZG
-   commitment list. The `kzg_commitments` field of any received
+3. Set `bid.aot_blob_kzg_commitments` to one commitment list per active ticket
+   targeting `bid.slot`. The `kzg_commitments` field of any received
    `AOTDataColumnSidecar` contains the full list of AOT blob KZG commitments for
-   the corresponding ticket; the builder computes the root over this list.
+   the corresponding ticket; the builder sets each inner list directly from this.

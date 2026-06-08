@@ -59,10 +59,10 @@ def merge_data_column_sidecars(
 
     The merged column contains JIT blob cells first, followed by AOT blob cells
     in the order the corresponding tickets appear in the bid's
-    ``aot_blob_kzg_commitments_roots`` (one root per ticket). This ordering ensures the
+    ``aot_blob_kzg_commitments`` (one list per ticket). This ordering ensures the
     merged column cells align with the concatenation of
-    ``bid.jit_blob_kzg_commitments`` and the per-ticket AOT commitment lists whose
-    roots appear, in order, in ``bid.aot_blob_kzg_commitments_roots``.
+    ``bid.jit_blob_kzg_commitments`` and the per-ticket AOT commitment lists in
+    ``bid.aot_blob_kzg_commitments``, in order.
 
     All sidecars MUST have the same column index.
     """
@@ -95,23 +95,21 @@ index into a single `DataColumnSidecar`:
    - Take the JIT `DataColumnSidecar` for column `i` (received via
      `data_column_sidecar_{subnet_id}` gossip).
    - Take the `AOTDataColumnSidecar`s for column `i` from each ticket whose KZG
-     commitment list roots to an entry in the bid's `aot_blob_kzg_commitments_roots`,
-     ordered to match the order of those roots in the bid.
+     commitment list appears in `bid.aot_blob_kzg_commitments`,
+     ordered to match the order of entries in the bid.
    - Call `merge_data_column_sidecars(jit_sidecar, aot_sidecars)` to produce the
      merged `DataColumnSidecar` for column `i`.
 2. Store the merged `DataColumnSidecar`s for custody and serving.
 
 The merged `DataColumnSidecar` can be verified using the existing
 `verify_data_column_sidecar` and `verify_data_column_sidecar_kzg_proofs`
-helpers with the combined KZG commitments. The AOT commitments are taken from
-the `kzg_commitments` of the per-ticket `AOTDataColumnSidecar`s; each ticket's
-commitment list MUST root to the corresponding entry in
-`bid.aot_blob_kzg_commitments_roots` -- i.e.
-`hash_tree_root(aot_sidecar.kzg_commitments) == bid.aot_blob_kzg_commitments_roots[i]`
-for the ticket at position `i`. The combined commitments are then
-`bid.jit_blob_kzg_commitments` followed by these validated per-ticket AOT
-commitment lists, in the order their roots appear in
-`bid.aot_blob_kzg_commitments_roots`.
+helpers with the combined KZG commitments. The AOT commitments are taken
+directly from `bid.aot_blob_kzg_commitments`; each ticket's sidecar's
+`kzg_commitments` MUST equal the corresponding inner list -- i.e.
+`aot_sidecar.kzg_commitments == bid.aot_blob_kzg_commitments[i]`
+for the ticket at position `i`. The combined commitments are
+`bid.jit_blob_kzg_commitments` followed by the per-ticket lists in
+`bid.aot_blob_kzg_commitments`, in order.
 
 *Note*: AOT blobs are not available via `engine_getBlobs` on the execution
 layer. AOT blobs are pre-propagated by ticket holders directly on the consensus

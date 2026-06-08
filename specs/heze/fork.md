@@ -46,8 +46,10 @@ def upgrade_to_heze(pre: gloas.BeaconState) -> BeaconState:
         slot=pre.latest_execution_payload_bid.slot,
         value=pre.latest_execution_payload_bid.value,
         execution_payment=pre.latest_execution_payload_bid.execution_payment,
-        blob_kzg_commitments=pre.latest_execution_payload_bid.blob_kzg_commitments,
         execution_requests_root=pre.latest_execution_payload_bid.execution_requests_root,
+        # [New in Heze:EIP-XXXX] Initialize JIT and AOT commitment fields empty at upgrade time
+        jit_blob_kzg_commitments=[],
+        aot_blob_kzg_commitments=[],
         # [New in Heze:EIP7805]
         inclusion_list_bits=Bitvector[INCLUSION_LIST_COMMITTEE_SIZE](),
     )
